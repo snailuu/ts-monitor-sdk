@@ -11,6 +11,41 @@
       "types": "./dist/esm/index.d.ts",
       "import": "./dist/esm/index.js",
       "require": "./dist/cjs/index.cjs"
+    },
+    "./plugins/error": {
+      "types": "./dist/esm/plugins/error.d.ts",
+      "import": "./dist/esm/plugins/error.js",
+      "require": "./dist/cjs/plugins/error.cjs"
+    },
+    "./plugins/http": {
+      "types": "./dist/esm/plugins/http.d.ts",
+      "import": "./dist/esm/plugins/http.js",
+      "require": "./dist/cjs/plugins/http.cjs"
+    },
+    "./plugins/behavior": {
+      "types": "./dist/esm/plugins/behavior.d.ts",
+      "import": "./dist/esm/plugins/behavior.js",
+      "require": "./dist/cjs/plugins/behavior.cjs"
+    },
+    "./plugins/performance": {
+      "types": "./dist/esm/plugins/performance.d.ts",
+      "import": "./dist/esm/plugins/performance.js",
+      "require": "./dist/cjs/plugins/performance.cjs"
+    },
+    "./plugins/web-vitals": {
+      "types": "./dist/esm/plugins/web-vitals.d.ts",
+      "import": "./dist/esm/plugins/web-vitals.js",
+      "require": "./dist/cjs/plugins/web-vitals.cjs"
+    },
+    "./plugins/node-error": {
+      "types": "./dist/esm/plugins/node-error.d.ts",
+      "import": "./dist/esm/plugins/node-error.js",
+      "require": "./dist/cjs/plugins/node-error.cjs"
+    },
+    "./plugins/node-http": {
+      "types": "./dist/esm/plugins/node-http.d.ts",
+      "import": "./dist/esm/plugins/node-http.js",
+      "require": "./dist/cjs/plugins/node-http.cjs"
     }
   },
   "files": [
