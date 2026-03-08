@@ -1,4 +1,31 @@
 node_modules
 dist
 coverage
+
+# 编辑器
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# TypeScript
 *.tsbuildinfo
+
+# 环境变量
+.env
+.env.*
+!.env.example
+
+# 日志
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# 示例项目产物
+examples/*/node_modules
+examples/*/pnpm-lock.yaml
+examples/*/dist
