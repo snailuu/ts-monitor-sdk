@@ -47,7 +47,7 @@ describe('BatchTransport', () => {
     expect(mockSend).toHaveBeenCalledOnce()
     expect(mockSend.mock.calls[0][1]).toHaveLength(3)
 
-    batch.destroy()
+    await batch.destroy()
   })
 
   it('定时器到期后刷新缓冲区', async () => {
@@ -61,7 +61,7 @@ describe('BatchTransport', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(mockSend).toHaveBeenCalledOnce()
 
-    batch.destroy()
+    await batch.destroy()
   })
 
   it('flush 立即发送所有缓冲事件', async () => {
@@ -76,7 +76,7 @@ describe('BatchTransport', () => {
     expect(mockSend).toHaveBeenCalledOnce()
     expect(mockSend.mock.calls[0][1]).toHaveLength(2)
 
-    batch.destroy()
+    await batch.destroy()
   })
 
   it('空缓冲区 flush 不调用 send', async () => {
@@ -87,16 +87,46 @@ describe('BatchTransport', () => {
     await batch.flush()
     expect(mockSend).not.toHaveBeenCalled()
 
-    batch.destroy()
+    await batch.destroy()
   })
 
-  it('destroy 后不再接受新事件', () => {
+  it('destroy 后不再接受新事件', async () => {
     const mockSend = vi.fn().mockResolvedValue(true)
     const transport: Transport = { send: mockSend }
     const batch = new BatchTransport(createConfig(), transport)
 
-    batch.destroy()
+    await batch.destroy()
     batch.add(createEvent())
     expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('flush 异常时不中断，回调 success=false', async () => {
+    const mockSend = vi.fn().mockRejectedValue(new Error('network'))
+    const transport: Transport = { send: mockSend }
+    const onFlushed = vi.fn()
+    const batch = new BatchTransport(createConfig({ maxRetries: 0 }), transport, onFlushed)
+
+    batch.add(createEvent())
+    await batch.flush()
+
+    expect(onFlushed).toHaveBeenCalledOnce()
+    expect(onFlushed.mock.calls[0][1]).toBe(false)
+
+    await batch.destroy()
+  })
+
+  it('onFlushed 回调在成功时 success=true', async () => {
+    const mockSend = vi.fn().mockResolvedValue(true)
+    const transport: Transport = { send: mockSend }
+    const onFlushed = vi.fn()
+    const batch = new BatchTransport(createConfig(), transport, onFlushed)
+
+    batch.add(createEvent())
+    await batch.flush()
+
+    expect(onFlushed).toHaveBeenCalledOnce()
+    expect(onFlushed.mock.calls[0][1]).toBe(true)
+
+    await batch.destroy()
   })
 })

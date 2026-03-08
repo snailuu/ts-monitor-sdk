@@ -8,16 +8,16 @@ function createMockTransport(): Transport {
 }
 
 describe('Monitor', () => {
-  it('createMonitor 创建实例', () => {
+  it('createMonitor 创建实例', async () => {
     const monitor = new Monitor({
       dsn: 'https://example.com/api',
       appId: 'test',
     })
     expect(monitor).toBeDefined()
-    monitor.destroy()
+    await monitor.destroy()
   })
 
-  it('use 注册插件并在 start 时调用 setup', () => {
+  it('use 注册插件并在 start 时调用 setup', async () => {
     const setup = vi.fn()
     const plugin: MonitorPlugin = { name: 'test-plugin', setup }
 
@@ -34,20 +34,35 @@ describe('Monitor', () => {
     expect(setup.mock.calls[0][0]).toHaveProperty('off')
     expect(setup.mock.calls[0][0]).toHaveProperty('getConfig')
 
-    monitor.destroy()
+    await monitor.destroy()
   })
 
-  it('重复注册同名插件抛出错误', () => {
+  it('start 后调用 use 立即初始化插件', async () => {
+    const setup = vi.fn()
+    const plugin: MonitorPlugin = { name: 'late-plugin', setup }
+
+    const monitor = new Monitor({
+      dsn: 'https://example.com/api',
+      appId: 'test',
+    })
+    monitor.start()
+    monitor.use(plugin)
+
+    expect(setup).toHaveBeenCalledOnce()
+    await monitor.destroy()
+  })
+
+  it('重复注册同名插件抛出错误', async () => {
     const monitor = new Monitor({
       dsn: 'https://example.com/api',
       appId: 'test',
     })
     monitor.use({ name: 'dup', setup: vi.fn() })
     expect(() => monitor.use({ name: 'dup', setup: vi.fn() })).toThrow()
-    monitor.destroy()
+    await monitor.destroy()
   })
 
-  it('hook beforeReport 可过滤事件（返回 false）', () => {
+  it('hook beforeReport 可过滤事件（返回 false）', async () => {
     const transport = createMockTransport()
     const monitor = new Monitor(
       { dsn: 'https://example.com/api', appId: 'test', maxBatchSize: 1 },
@@ -59,10 +74,10 @@ describe('Monitor', () => {
     monitor.report({ type: EventType.ERROR, data: { msg: 'blocked' } })
 
     expect(transport.send).not.toHaveBeenCalled()
-    monitor.destroy()
+    await monitor.destroy()
   })
 
-  it('hook beforeReport 可修改事件', () => {
+  it('hook beforeReport 可修改事件', async () => {
     const transport = createMockTransport()
     const monitor = new Monitor(
       { dsn: 'https://example.com/api', appId: 'test', maxBatchSize: 1 },
@@ -79,10 +94,33 @@ describe('Monitor', () => {
     const sentEvents = (transport.send as ReturnType<typeof vi.fn>).mock.calls[0][1]
     expect(sentEvents[0].data.injected).toBe(true)
 
-    monitor.destroy()
+    await monitor.destroy()
   })
 
-  it('sampleRate=0 时所有事件被过滤', () => {
+  it('hook afterReport 在上报完成后调用', async () => {
+    vi.useFakeTimers()
+    const afterHook = vi.fn()
+    const transport = createMockTransport()
+    const monitor = new Monitor(
+      { dsn: 'https://example.com/api', appId: 'test', maxBatchSize: 1 },
+      transport,
+    )
+
+    monitor.hook('afterReport', afterHook)
+    monitor.start()
+    monitor.report({ type: EventType.ERROR, data: { msg: 'test' } })
+
+    // flush 是异步的，需要等待
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(afterHook).toHaveBeenCalledOnce()
+    expect(afterHook.mock.calls[0][1]).toBe(true) // success
+
+    vi.useRealTimers()
+    await monitor.destroy()
+  })
+
+  it('sampleRate=0 时所有事件被过滤', async () => {
     const transport = createMockTransport()
     const monitor = new Monitor(
       { dsn: 'https://example.com/api', appId: 'test', sampleRate: 0, maxBatchSize: 1 },
@@ -91,10 +129,23 @@ describe('Monitor', () => {
     monitor.start()
     monitor.report({ type: EventType.ERROR, data: {} })
     expect(transport.send).not.toHaveBeenCalled()
-    monitor.destroy()
+    await monitor.destroy()
   })
 
-  it('destroy 调用所有插件的 destroy', () => {
+  it('sampleRate 超出范围被 clamp', async () => {
+    const transport = createMockTransport()
+    const monitor = new Monitor(
+      { dsn: 'https://example.com/api', appId: 'test', sampleRate: 2, maxBatchSize: 1 },
+      transport,
+    )
+    monitor.start()
+    // sampleRate=2 被 clamp 到 1，所有事件都应通过
+    monitor.report({ type: EventType.ERROR, data: {} })
+    expect(transport.send).toHaveBeenCalled()
+    await monitor.destroy()
+  })
+
+  it('destroy 调用所有插件的 destroy', async () => {
     const destroyFn = vi.fn()
     const plugin: MonitorPlugin = {
       name: 'test',
@@ -107,11 +158,11 @@ describe('Monitor', () => {
     })
     monitor.use(plugin)
     monitor.start()
-    monitor.destroy()
+    await monitor.destroy()
     expect(destroyFn).toHaveBeenCalledOnce()
   })
 
-  it('enabled=false 时不启动插件', () => {
+  it('enabled=false 时不启动插件', async () => {
     const setup = vi.fn()
     const monitor = new Monitor({
       dsn: 'https://example.com/api',
@@ -121,6 +172,6 @@ describe('Monitor', () => {
     monitor.use({ name: 'test', setup })
     monitor.start()
     expect(setup).not.toHaveBeenCalled()
-    monitor.destroy()
+    await monitor.destroy()
   })
 })

@@ -3,8 +3,7 @@ import { EventType } from '../types'
 import { isBrowser } from '../utils/env'
 
 export interface PerformancePluginOptions {
-  /** 是否采集资源加载性能，默认 false */
-  resource?: boolean
+  // 预留扩展
 }
 
 /**

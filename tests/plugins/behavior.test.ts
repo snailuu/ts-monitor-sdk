@@ -1,18 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { behaviorPlugin } from '../../src/plugins/behavior'
 import { EventType } from '../../src/types'
-import type { PluginContext, ReportData } from '../../src/types'
-
-function createMockContext(): PluginContext & { reported: ReportData[] } {
-  const reported: ReportData[] = []
-  return {
-    reported,
-    report: (data: ReportData) => reported.push(data),
-    on: vi.fn(),
-    off: vi.fn(),
-    getConfig: () => ({ dsn: 'https://test.com', appId: 'test' }),
-  }
-}
+import { createMockContext } from '../helpers'
 
 describe('behaviorPlugin', () => {
   it('name 为 "behavior"', () => {
@@ -47,6 +36,23 @@ describe('behaviorPlugin', () => {
     document.body.click()
 
     expect(ctx.reported).toHaveLength(0)
+    plugin.destroy?.()
+  })
+
+  it('collectText=false 时不采集文本', () => {
+    const ctx = createMockContext()
+    const plugin = behaviorPlugin({ click: true, collectText: false })
+    plugin.setup(ctx)
+
+    const btn = document.createElement('button')
+    btn.textContent = 'Submit'
+    document.body.appendChild(btn)
+    btn.click()
+
+    expect(ctx.reported).toHaveLength(1)
+    expect(ctx.reported[0].data.text).toBeUndefined()
+
+    document.body.removeChild(btn)
     plugin.destroy?.()
   })
 

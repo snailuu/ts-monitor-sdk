@@ -3,12 +3,14 @@ import { isBrowser } from '../utils/env'
 
 /** Beacon API Transport（浏览器端优先） */
 export class BeaconTransport implements Transport {
+  private fallback = new FetchTransport()
+
   async send(url: string, data: MonitorEvent[]): Promise<boolean> {
     if (isBrowser() && navigator.sendBeacon) {
       const blob = new Blob([JSON.stringify(data)], { type: 'application/json' })
       return navigator.sendBeacon(url, blob)
     }
-    return new FetchTransport().send(url, data)
+    return this.fallback.send(url, data)
   }
 }
 
@@ -29,6 +31,9 @@ export class FetchTransport implements Transport {
   }
 }
 
+/** 上报完成回调 */
+export type FlushCallback = (events: MonitorEvent[], success: boolean) => void
+
 /** 批量上报管理器 */
 export class BatchTransport {
   private buffer: MonitorEvent[] = []
@@ -36,10 +41,12 @@ export class BatchTransport {
   private destroyed = false
   private config: MonitorConfig
   private transport: Transport
+  private onFlushed?: FlushCallback
 
-  constructor(config: MonitorConfig, transport?: Transport) {
+  constructor(config: MonitorConfig, transport?: Transport, onFlushed?: FlushCallback) {
     this.config = config
     this.transport = transport ?? new BeaconTransport()
+    this.onFlushed = onFlushed
     this.startTimer()
   }
 
@@ -58,21 +65,29 @@ export class BatchTransport {
 
     const events = this.buffer.splice(0)
     const maxRetries = this.config.maxRetries ?? 3
+    let success = false
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const success = await this.transport.send(this.config.dsn, events)
-      if (success) return
+      try {
+        success = await this.transport.send(this.config.dsn, events)
+        if (success) break
+      }
+      catch {
+        success = false
+      }
     }
+
+    this.onFlushed?.(events, success)
   }
 
-  destroy(): void {
+  async destroy(): Promise<void> {
     this.destroyed = true
     if (this.timer) {
       clearInterval(this.timer)
       this.timer = null
     }
     if (this.buffer.length > 0) {
-      void this.flush()
+      await this.flush()
     }
   }
 

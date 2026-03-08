@@ -34,11 +34,28 @@ export class Monitor {
   } = { beforeReport: [], afterReport: [] }
 
   private started = false
+  private pluginCtx: PluginContext | null = null
 
   constructor(config: MonitorConfig, transport?: Transport) {
     this.config = { ...DEFAULT_CONFIG, ...config }
+
+    // 校验 sampleRate 范围
+    if (this.config.sampleRate !== undefined) {
+      this.config.sampleRate = Math.max(0, Math.min(1, this.config.sampleRate))
+    }
+
     this.eventBus = new EventBus()
-    this.batchTransport = new BatchTransport(this.config, transport)
+    this.batchTransport = new BatchTransport(this.config, transport, (events, success) => {
+      // afterReport 钩子回调
+      for (const hook of this.hooks.afterReport) {
+        try {
+          hook(events, success)
+        }
+        catch {
+          // 忽略钩子异常
+        }
+      }
+    })
   }
 
   /** 注册插件 */
@@ -48,6 +65,17 @@ export class Monitor {
     }
     this.pluginNames.add(plugin.name)
     this.plugins.push(plugin)
+
+    // 如果已启动，立即初始化新插件
+    if (this.started && this.pluginCtx) {
+      try {
+        plugin.setup(this.pluginCtx)
+      }
+      catch (err) {
+        console.error(`[Monitor] 插件 "${plugin.name}" 初始化失败:`, err)
+      }
+    }
+
     return this
   }
 
@@ -62,10 +90,10 @@ export class Monitor {
     if (this.started || !this.config.enabled) return
     this.started = true
 
-    const ctx = this.createPluginContext()
+    this.pluginCtx = this.createPluginContext()
     for (const plugin of this.plugins) {
       try {
-        plugin.setup(ctx)
+        plugin.setup(this.pluginCtx)
       }
       catch (err) {
         console.error(`[Monitor] 插件 "${plugin.name}" 初始化失败:`, err)
@@ -85,7 +113,7 @@ export class Monitor {
   }
 
   /** 销毁 SDK */
-  destroy(): void {
+  async destroy(): Promise<void> {
     for (const plugin of this.plugins) {
       try {
         plugin.destroy?.()
@@ -96,8 +124,9 @@ export class Monitor {
     }
     this.plugins = []
     this.pluginNames.clear()
+    this.pluginCtx = null
     this.eventBus.clear()
-    this.batchTransport.destroy()
+    await this.batchTransport.destroy()
     this.started = false
   }
 
