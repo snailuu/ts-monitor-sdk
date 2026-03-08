@@ -1,5 +1,5 @@
 {
-  "name": "ts-monitor-sdk",
+  "name": "@snailuu/ts-monitor-sdk",
   "version": "1.0.0",
   "description": "",
   "type": "module",
