@@ -18,6 +18,8 @@ export function behaviorPlugin(options?: BehaviorPluginOptions): MonitorPlugin {
   let clickHandler: ((e: MouseEvent) => void) | null = null
   let hashHandler: ((e: HashChangeEvent) => void) | null = null
   let popstateHandler: ((e: PopStateEvent) => void) | null = null
+  let originalPushState: typeof history.pushState | null = null
+  let originalReplaceState: typeof history.replaceState | null = null
 
   return {
     name: 'behavior',
@@ -44,26 +46,60 @@ export function behaviorPlugin(options?: BehaviorPluginOptions): MonitorPlugin {
             if (ownText) data.text = ownText
           }
           ctx.report({ type: EventType.BEHAVIOR, data })
+          // 推送面包屑
+          ctx.addBreadcrumb?.({ type: 'click', message: `${target.tagName}${target.id ? '#' + target.id : ''}` })
         }
         document.addEventListener('click', clickHandler, true)
       }
 
-      // 路由变化监听（hashchange + popstate）
+      // 路由变化监听（hashchange + popstate + History API）
       if (opts.routeChange) {
         hashHandler = (e: HashChangeEvent) => {
           ctx.report({
             type: EventType.BEHAVIOR,
             data: { action: 'route-change', from: e.oldURL, to: e.newURL },
           })
+          ctx.addBreadcrumb?.({ type: 'route', message: `${e.oldURL} → ${e.newURL}` })
         }
         popstateHandler = () => {
           ctx.report({
             type: EventType.BEHAVIOR,
             data: { action: 'route-change', to: location.href },
           })
+          ctx.addBreadcrumb?.({ type: 'route', message: location.href })
         }
         window.addEventListener('hashchange', hashHandler)
         window.addEventListener('popstate', popstateHandler)
+
+        // History API 拦截（pushState / replaceState）
+        originalPushState = history.pushState.bind(history)
+        originalReplaceState = history.replaceState.bind(history)
+
+        history.pushState = function (state: any, unused: string, url?: string | URL | null) {
+          const from = location.href
+          originalPushState!(state, unused, url)
+          const to = location.href
+          if (from !== to) {
+            ctx.report({
+              type: EventType.BEHAVIOR,
+              data: { action: 'route-change', from, to },
+            })
+            ctx.addBreadcrumb?.({ type: 'route', message: `${from} → ${to}` })
+          }
+        }
+
+        history.replaceState = function (state: any, unused: string, url?: string | URL | null) {
+          const from = location.href
+          originalReplaceState!(state, unused, url)
+          const to = location.href
+          if (from !== to) {
+            ctx.report({
+              type: EventType.BEHAVIOR,
+              data: { action: 'route-change', from, to },
+            })
+            ctx.addBreadcrumb?.({ type: 'route', message: `${from} → ${to}` })
+          }
+        }
       }
     },
     destroy() {
@@ -79,6 +115,15 @@ export function behaviorPlugin(options?: BehaviorPluginOptions): MonitorPlugin {
       if (popstateHandler) {
         window.removeEventListener('popstate', popstateHandler)
         popstateHandler = null
+      }
+      // 恢复原始 History API
+      if (originalPushState) {
+        history.pushState = originalPushState
+        originalPushState = null
+      }
+      if (originalReplaceState) {
+        history.replaceState = originalReplaceState
+        originalReplaceState = null
       }
     },
   }

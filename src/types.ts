@@ -16,6 +16,10 @@ export interface MonitorConfig {
   flushInterval?: number
   /** 最大重试次数，默认 3 */
   maxRetries?: number
+  /** 缓冲区最大容量，溢出时丢弃最旧事件，默认 100 */
+  maxBufferSize?: number
+  /** 面包屑最大数量，默认 20 */
+  maxBreadcrumbs?: number
 }
 
 /** 事件类型枚举 */
@@ -41,6 +45,22 @@ export interface MonitorEvent {
   appId?: string
   /** 用户 ID（由 SDK 自动填充） */
   userId?: string
+  /** 面包屑列表（错误事件自动附加） */
+  breadcrumbs?: Breadcrumb[]
+}
+
+/** 面包屑条目 */
+export interface Breadcrumb {
+  /** 类型：click / route / http / error / custom */
+  type: string
+  /** 分类 */
+  category?: string
+  /** 简要描述 */
+  message: string
+  /** 时间戳 */
+  timestamp: number
+  /** 附加数据 */
+  data?: Record<string, unknown>
 }
 
 /** 用户传入的上报数据（不含自动填充字段） */
@@ -59,6 +79,10 @@ export interface PluginContext {
   off: (eventType: string, handler: EventHandler) => void
   /** 获取当前配置 */
   getConfig: () => Readonly<MonitorConfig>
+  /** 添加面包屑 */
+  addBreadcrumb?: (breadcrumb: Omit<Breadcrumb, 'timestamp'>) => void
+  /** 获取当前面包屑列表 */
+  getBreadcrumbs?: () => Breadcrumb[]
 }
 
 /** 插件接口 */

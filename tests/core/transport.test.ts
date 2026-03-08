@@ -129,4 +129,55 @@ describe('BatchTransport', () => {
 
     await batch.destroy()
   })
+
+  // === 指数退避重试测试 ===
+
+  it('重试失败时使用指数退避延迟', async () => {
+    // 前两次失败，第三次成功
+    const mockSend = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+    const transport: Transport = { send: mockSend }
+    const batch = new BatchTransport(createConfig({ maxRetries: 2 }), transport)
+
+    batch.add(createEvent())
+    const flushPromise = batch.flush()
+
+    // 第一次重试延迟 1000ms
+    await vi.advanceTimersByTimeAsync(1000)
+    // 第二次重试延迟 2000ms
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromise
+
+    expect(mockSend).toHaveBeenCalledTimes(3)
+
+    await batch.destroy()
+  })
+
+  // === 缓冲区溢出保护测试 ===
+
+  it('缓冲区超过 maxBufferSize 时丢弃最旧事件', async () => {
+    const mockSend = vi.fn().mockResolvedValue(true)
+    const transport: Transport = { send: mockSend }
+    const batch = new BatchTransport(
+      createConfig({ maxBufferSize: 5, maxBatchSize: 100 }),
+      transport,
+    )
+
+    // 添加 7 个事件，maxBufferSize=5，前 2 个应被丢弃
+    for (let i = 0; i < 7; i++) {
+      batch.add(createEvent({ id: `event-${i}` }))
+    }
+
+    await batch.flush()
+    expect(mockSend).toHaveBeenCalledOnce()
+    const sentEvents = mockSend.mock.calls[0][1]
+    expect(sentEvents).toHaveLength(5)
+    // 最旧的 event-0 和 event-1 应被丢弃
+    expect(sentEvents[0].id).toBe('event-2')
+    expect(sentEvents[4].id).toBe('event-6')
+
+    await batch.destroy()
+  })
 })

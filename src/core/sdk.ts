@@ -1,6 +1,7 @@
 import type {
   BeforeReportHook,
   AfterReportHook,
+  Breadcrumb,
   HookMap,
   MonitorConfig,
   MonitorEvent,
@@ -9,10 +10,12 @@ import type {
   ReportData,
   Transport,
 } from '../types'
+import { EventType } from '../types'
 import { EventBus } from './event-bus'
 import { BatchTransport } from './transport'
+import { BreadcrumbManager } from './breadcrumbs'
 import { generateId } from '../utils/id'
-import { getTimestamp } from '../utils/env'
+import { getTimestamp, isBrowser } from '../utils/env'
 
 const DEFAULT_CONFIG: Partial<MonitorConfig> = {
   enabled: true,
@@ -28,6 +31,7 @@ export class Monitor {
   private pluginNames = new Set<string>()
   private eventBus: EventBus
   private batchTransport: BatchTransport
+  private breadcrumbs: BreadcrumbManager
   private hooks: {
     beforeReport: BeforeReportHook[]
     afterReport: AfterReportHook[]
@@ -35,6 +39,8 @@ export class Monitor {
 
   private started = false
   private pluginCtx: PluginContext | null = null
+  private visibilityHandler: (() => void) | null = null
+  private beforeUnloadHandler: (() => void) | null = null
 
   constructor(config: MonitorConfig, transport?: Transport) {
     this.config = { ...DEFAULT_CONFIG, ...config }
@@ -45,6 +51,7 @@ export class Monitor {
     }
 
     this.eventBus = new EventBus()
+    this.breadcrumbs = new BreadcrumbManager(this.config.maxBreadcrumbs)
     this.batchTransport = new BatchTransport(this.config, transport, (events, success) => {
       // afterReport 钩子回调
       for (const hook of this.hooks.afterReport) {
@@ -99,6 +106,20 @@ export class Monitor {
         console.error(`[Monitor] 插件 "${plugin.name}" 初始化失败:`, err)
       }
     }
+
+    // 页面生命周期 flush：确保页面关闭前数据不丢失
+    if (isBrowser()) {
+      this.visibilityHandler = () => {
+        if (document.visibilityState === 'hidden') {
+          void this.batchTransport.flush()
+        }
+      }
+      this.beforeUnloadHandler = () => {
+        void this.batchTransport.flush()
+      }
+      document.addEventListener('visibilitychange', this.visibilityHandler)
+      window.addEventListener('beforeunload', this.beforeUnloadHandler)
+    }
   }
 
   /** 手动上报 */
@@ -126,6 +147,16 @@ export class Monitor {
     this.pluginNames.clear()
     this.pluginCtx = null
     this.eventBus.clear()
+    this.breadcrumbs.clear()
+    // 移除页面生命周期监听
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler)
+      this.visibilityHandler = null
+    }
+    if (this.beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', this.beforeUnloadHandler)
+      this.beforeUnloadHandler = null
+    }
     await this.batchTransport.destroy()
     this.started = false
   }
@@ -136,6 +167,8 @@ export class Monitor {
       on: (event, handler) => this.eventBus.on(event, handler),
       off: (event, handler) => this.eventBus.off(event, handler),
       getConfig: () => Object.freeze({ ...this.config }),
+      addBreadcrumb: (breadcrumb: Omit<Breadcrumb, 'timestamp'>) => this.breadcrumbs.add(breadcrumb),
+      getBreadcrumbs: () => this.breadcrumbs.getAll(),
     }
   }
 
@@ -150,6 +183,11 @@ export class Monitor {
       data: data.data,
       appId: this.config.appId,
       userId: this.config.userId,
+    }
+
+    // ERROR 类型事件自动附加面包屑
+    if (data.type === EventType.ERROR) {
+      ;(event as MonitorEvent).breadcrumbs = this.breadcrumbs.getAll()
     }
 
     for (const hook of this.hooks.beforeReport) {

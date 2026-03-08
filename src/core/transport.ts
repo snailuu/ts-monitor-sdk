@@ -52,6 +52,13 @@ export class BatchTransport {
 
   add(event: MonitorEvent): void {
     if (this.destroyed) return
+
+    const maxBufferSize = this.config.maxBufferSize ?? 100
+    // 缓冲区溢出保护：丢弃最旧事件
+    while (this.buffer.length >= maxBufferSize) {
+      this.buffer.shift()
+    }
+
     this.buffer.push(event)
 
     const maxBatchSize = this.config.maxBatchSize ?? 10
@@ -75,6 +82,10 @@ export class BatchTransport {
       catch {
         success = false
       }
+      // 指数退避：delay = min(1000 * 2^attempt, 30000)
+      if (attempt < maxRetries) {
+        await this.sleep(Math.min(1000 * 2 ** attempt, 30000))
+      }
     }
 
     this.onFlushed?.(events, success)
@@ -96,6 +107,10 @@ export class BatchTransport {
     this.timer = setInterval(() => {
       void this.flush()
     }, interval)
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
   }
 }
 

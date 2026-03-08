@@ -174,4 +174,132 @@ describe('Monitor', () => {
     expect(setup).not.toHaveBeenCalled()
     await monitor.destroy()
   })
+
+  // === 页面生命周期 flush 测试 ===
+
+  it('visibilitychange hidden 时触发 flush', async () => {
+    vi.useFakeTimers()
+    const transport = createMockTransport()
+    const monitor = new Monitor(
+      { dsn: 'https://example.com/api', appId: 'test', maxBatchSize: 100 },
+      transport,
+    )
+    monitor.start()
+    monitor.report({ type: EventType.ERROR, data: { msg: 'test' } })
+
+    // 模拟页面隐藏
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(transport.send).toHaveBeenCalled()
+
+    // 恢复
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    vi.useRealTimers()
+    await monitor.destroy()
+  })
+
+  it('beforeunload 时触发 flush', async () => {
+    vi.useFakeTimers()
+    const transport = createMockTransport()
+    const monitor = new Monitor(
+      { dsn: 'https://example.com/api', appId: 'test', maxBatchSize: 100 },
+      transport,
+    )
+    monitor.start()
+    monitor.report({ type: EventType.ERROR, data: { msg: 'test' } })
+
+    window.dispatchEvent(new Event('beforeunload'))
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(transport.send).toHaveBeenCalled()
+
+    vi.useRealTimers()
+    await monitor.destroy()
+  })
+
+  // === 面包屑集成测试 ===
+
+  it('pluginCtx 提供 addBreadcrumb 和 getBreadcrumbs', async () => {
+    let ctx: any = null
+    const plugin = {
+      name: 'bc-test',
+      setup(c: any) { ctx = c },
+    }
+    const monitor = new Monitor({
+      dsn: 'https://example.com/api',
+      appId: 'test',
+    })
+    monitor.use(plugin)
+    monitor.start()
+
+    expect(ctx.addBreadcrumb).toBeTypeOf('function')
+    expect(ctx.getBreadcrumbs).toBeTypeOf('function')
+
+    ctx.addBreadcrumb({ type: 'click', message: 'btn' })
+    const crumbs = ctx.getBreadcrumbs()
+    expect(crumbs).toHaveLength(1)
+    expect(crumbs[0].type).toBe('click')
+
+    await monitor.destroy()
+  })
+
+  it('ERROR 事件自动附加面包屑', async () => {
+    vi.useFakeTimers()
+    const transport = createMockTransport()
+    const monitor = new Monitor(
+      { dsn: 'https://example.com/api', appId: 'test', maxBatchSize: 1 },
+      transport,
+    )
+
+    let ctx: any = null
+    monitor.use({
+      name: 'bc-inject',
+      setup(c) { ctx = c },
+    })
+    monitor.start()
+
+    // 先添加一些面包屑
+    ctx.addBreadcrumb({ type: 'click', message: 'button' })
+    ctx.addBreadcrumb({ type: 'route', message: '/home' })
+
+    // 上报 ERROR 事件
+    monitor.report({ type: EventType.ERROR, data: { msg: 'test' } })
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(transport.send).toHaveBeenCalled()
+    const sentEvents = (transport.send as ReturnType<typeof vi.fn>).mock.calls[0][1]
+    expect(sentEvents[0].breadcrumbs).toHaveLength(2)
+    expect(sentEvents[0].breadcrumbs[0].type).toBe('click')
+
+    vi.useRealTimers()
+    await monitor.destroy()
+  })
+
+  it('非 ERROR 事件不附加面包屑', async () => {
+    vi.useFakeTimers()
+    const transport = createMockTransport()
+    const monitor = new Monitor(
+      { dsn: 'https://example.com/api', appId: 'test', maxBatchSize: 1 },
+      transport,
+    )
+
+    let ctx: any = null
+    monitor.use({
+      name: 'bc-noattach',
+      setup(c) { ctx = c },
+    })
+    monitor.start()
+
+    ctx.addBreadcrumb({ type: 'click', message: 'button' })
+    monitor.report({ type: EventType.HTTP, data: { url: '/api' } })
+    await vi.advanceTimersByTimeAsync(0)
+
+    const sentEvents = (transport.send as ReturnType<typeof vi.fn>).mock.calls[0][1]
+    expect(sentEvents[0].breadcrumbs).toBeUndefined()
+
+    vi.useRealTimers()
+    await monitor.destroy()
+  })
 })
