@@ -6,11 +6,15 @@ export interface BehaviorPluginOptions {
   click?: boolean
   /** 是否捕获路由变化，默认 true */
   routeChange?: boolean
+  /** 是否采集点击元素的文本内容，默认 true（可关闭以避免 PII 泄露） */
+  collectText?: boolean
+  /** 采集文本的最大长度，默认 50 */
+  maxTextLength?: number
 }
 
 /** 用户行为追踪插件，支持点击事件和路由变化监控 */
 export function behaviorPlugin(options?: BehaviorPluginOptions): MonitorPlugin {
-  const opts = { click: true, routeChange: true, ...options }
+  const opts = { click: true, routeChange: true, collectText: true, maxTextLength: 50, ...options }
   let clickHandler: ((e: MouseEvent) => void) | null = null
   let hashHandler: ((e: HashChangeEvent) => void) | null = null
   let popstateHandler: ((e: PopStateEvent) => void) | null = null
@@ -23,16 +27,23 @@ export function behaviorPlugin(options?: BehaviorPluginOptions): MonitorPlugin {
         clickHandler = (e: MouseEvent) => {
           const target = e.target as HTMLElement | null
           if (!target) return
-          ctx.report({
-            type: EventType.BEHAVIOR,
-            data: {
-              action: 'click',
-              tagName: target.tagName,
-              className: target.className || undefined,
-              id: target.id || undefined,
-              text: target.textContent?.slice(0, 100)?.trim() || undefined,
-            },
-          })
+          const data: Record<string, unknown> = {
+            action: 'click',
+            tagName: target.tagName,
+            className: target.className || undefined,
+            id: target.id || undefined,
+          }
+          // 仅在启用时采集文本，使用直接子文本节点避免深层遍历捕获敏感信息
+          if (opts.collectText) {
+            const ownText = Array.from(target.childNodes)
+              .filter(n => n.nodeType === Node.TEXT_NODE)
+              .map(n => n.textContent ?? '')
+              .join('')
+              .trim()
+              .slice(0, opts.maxTextLength)
+            if (ownText) data.text = ownText
+          }
+          ctx.report({ type: EventType.BEHAVIOR, data })
         }
         document.addEventListener('click', clickHandler, true)
       }

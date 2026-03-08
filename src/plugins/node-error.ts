@@ -2,11 +2,17 @@ import type { MonitorPlugin, PluginContext } from '../types'
 import { EventType } from '../types'
 import { parseStack } from '../utils/stack-parser'
 
+export interface NodeErrorPluginOptions {
+  /** 是否在未捕获异常后退出进程，默认 true（保持 Node.js 默认行为） */
+  exitOnError?: boolean
+}
+
 /**
  * Node.js 错误捕获插件
  * 监听 uncaughtException 和 unhandledRejection 事件，自动上报未处理异常
  */
-export function nodeErrorPlugin(): MonitorPlugin {
+export function nodeErrorPlugin(options?: NodeErrorPluginOptions): MonitorPlugin {
+  const exitOnError = options?.exitOnError ?? true
   let uncaughtHandler: ((error: Error) => void) | null = null
   let rejectionHandler: ((reason: unknown) => void) | null = null
 
@@ -25,6 +31,10 @@ export function nodeErrorPlugin(): MonitorPlugin {
             source: 'uncaughtException',
           },
         })
+        // 上报后退出进程，避免在不一致状态下继续运行
+        if (exitOnError) {
+          setTimeout(() => process.exit(1), 100)
+        }
       }
 
       // 捕获未处理的 Promise 拒绝
