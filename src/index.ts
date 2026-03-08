@@ -13,3 +13,5 @@ export type {
 } from './types'
 
 export { EventType } from './types'
+
+export { Monitor, createMonitor } from './core/sdk'
